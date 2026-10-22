@@ -52,6 +52,12 @@ ON_FEATURE = [
     (0, "git commit -q -F - <<'EOF'\nDarren's main point: pio wasn't installed\nEOF\ngit push -u origin agent-runner"),
     (0, "cat > f <<EOF\ngit push origin main\nEOF"),
     (2, "git commit -F - <<'EOF'\nit's done\nEOF\ngit push origin main"),
+    # heredocs fed to a shell are code: their bodies must still be checked
+    (2, "bash <<'EOF'\ngit push origin main\nEOF"),
+    (2, "sh <<EOF\ngit push origin main\nEOF"),
+    (2, "bash -s <<EOF\ncd /tmp\ngit push origin HEAD:main\nEOF"),
+    (2, "cat <<EOF | sh\ngit push origin main\nEOF"),
+    (0, "bash <<'EOF'\ngit push origin agent/7-x\nEOF"),
 ]
 
 # run from a repo on main

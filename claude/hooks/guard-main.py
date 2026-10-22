@@ -114,18 +114,25 @@ def check_local(sub, args, branch_of):
 
 
 HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
+# A heredoc on a line that runs one of these is code, not data.
+SHELL_WORD_RE = re.compile(r"(^|[\s;&|(/])(bash|sh|dash|zsh|ksh|eval|source|python3?)(\s|$)")
 
 
 def strip_heredocs(command):
-    """Drop heredoc bodies (commit messages, file contents): they're data, and
-    their apostrophes would otherwise break shlex."""
+    """Drop heredoc bodies that are data (commit messages, file contents), whose
+    apostrophes would otherwise break shlex. Bodies fed to a shell (bash <<EOF,
+    cat <<EOF | sh) are kept as commands, so a push inside one is still checked."""
     out, lines, i = [], command.split("\n"), 0
     while i < len(lines):
         line = lines[i]
-        out.append(HEREDOC_RE.sub("", line))
+        bare = HEREDOC_RE.sub("", line)
+        out.append(bare)
+        is_code = bool(SHELL_WORD_RE.search(bare))
         for m in HEREDOC_RE.finditer(line):
             i += 1
             while i < len(lines) and lines[i].strip() != m.group(2):
+                if is_code:
+                    out.append(lines[i])
                 i += 1
         i += 1
     return "\n".join(out)
