@@ -8,11 +8,13 @@
 #
 # Environment overrides:
 #   NODE_MAJOR=24         Node.js major version to pin from NodeSource (current LTS line)
-#   FORCE_WIFI_OFF=1      turn Wi-Fi off even if no wired connection is up
+#   WIFI_OFF=1            turn Wi-Fi off (only if a wired connection is up)
+#   FORCE_WIFI_OFF=1      with WIFI_OFF=1, turn Wi-Fi off even with no wired connection
 
 set -euo pipefail
 
 NODE_MAJOR="${NODE_MAJOR:-24}"
+WIFI_OFF="${WIFI_OFF:-0}"
 FORCE_WIFI_OFF="${FORCE_WIFI_OFF:-0}"
 
 log()  { printf '\n==> %s\n' "$*"; }
@@ -243,14 +245,16 @@ install_file "$HOME/.vscode-server/data/Machine/settings.json" 0644 nosudo <<'EO
 EOF
 
 # ---------------------------------------------------------------------------
-# 8. Wi-Fi off
-#    The box runs on Ethernet. Done last, and skipped unless a wired connection
-#    is up, so a bootstrap over Wi-Fi doesn't cut itself off.
-#    `nmcli radio wifi off` persists across reboots.
+# 8. Wi-Fi off (opt-in)
+#    The box runs on Wi-Fi for now, so this only runs with WIFI_OFF=1. Even
+#    then it's skipped unless a wired connection is up, so a bootstrap over
+#    Wi-Fi doesn't cut itself off. `nmcli radio wifi off` persists across reboots.
 # ---------------------------------------------------------------------------
 log "Wi-Fi"
 
-if ! command -v nmcli >/dev/null 2>&1; then
+if [[ $WIFI_OFF != 1 ]]; then
+    note "left as is (set WIFI_OFF=1 to turn it off)"
+elif ! command -v nmcli >/dev/null 2>&1; then
     warn "nmcli not found; Wi-Fi left as is."
 elif [[ $(nmcli radio wifi) == disabled ]]; then
     note "already off"
@@ -259,7 +263,7 @@ elif nmcli -t -f TYPE,STATE device | grep -qx 'ethernet:connected' || [[ $FORCE_
     note "turned off"
 else
     warn "no wired connection is up, so Wi-Fi was left on to avoid losing the network."
-    warn "Plug in Ethernet and rerun, or rerun with FORCE_WIFI_OFF=1."
+    warn "Plug in Ethernet and rerun, or rerun with WIFI_OFF=1 FORCE_WIFI_OFF=1."
 fi
 
 log "Done. Remaining manual steps are in README.md."

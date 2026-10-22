@@ -21,7 +21,7 @@ What it sets up:
 - SSH: the server is enabled and accepts keys only (`/etc/ssh/sshd_config.d/10-keys-only.conf`)
 - `~/.tmux.conf`: mouse on and 50k lines of scrollback
 - VS Code Remote machine settings: VS Code's own git auth is turned off, so git uses the gh credential helper
-- Wi-Fi off. This only happens when a wired connection is up. Otherwise the script leaves Wi-Fi on and warns you. Rerun with `FORCE_WIFI_OFF=1` to turn it off anyway.
+- Wi-Fi off, but only if you ask for it. The box is on Wi-Fi for now, so the script leaves Wi-Fi alone by default. Run it with `WIFI_OFF=1` when the box moves to Ethernet. Even then it skips this step unless a wired connection is up. Adding `FORCE_WIFI_OFF=1` turns Wi-Fi off anyway.
 
 The lid setting takes effect after a reboot. The Cinnamon power settings are skipped over plain SSH, so rerun the script from the desktop to apply them.
 
@@ -37,7 +37,7 @@ claude        # opens a browser to log in; or run /login inside claude
 
 ### 2. Log in to GitHub as the bot
 
-Log in as **`dschaaf-bot`**, not your personal account:
+The agent works as **`dschaaf-bot`**, not your personal account. The bot can't push to `main`: the `protect-main` ruleset requires a pull request, and `dgschaaf` has to approve it.
 
 ```bash
 gh auth login --hostname github.com --git-protocol https --web
@@ -45,11 +45,11 @@ gh auth setup-git     # makes git use gh for github.com credentials
 gh auth status        # should show dschaaf-bot as the active account
 ```
 
-### 3. Set your git name and email
+### 3. Set the git name and email (the bot's)
 
 ```bash
-git config --global user.name  "Your Name"
-git config --global user.email "you@example.com"
+git config --global user.name  "dschaaf-bot"
+git config --global user.email "dschaaf.admin@gmail.com"
 ```
 
 ### 4. Pi deploy key
