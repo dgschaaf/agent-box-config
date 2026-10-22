@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# bootstrap.sh — rebuild the agent box on a fresh Linux Mint 22.x (Ubuntu noble base).
+#
+# Run as your normal user (not root); it calls sudo where needed.
+# Safe to run repeatedly: every step checks current state before changing it,
+# and any file it would overwrite with different content is backed up first.
+# Contains no secrets — logins and keys are manual steps, see README.md.
+#
+# Environment overrides:
+#   NODE_MAJOR=24         Node.js major version to pin from NodeSource (current LTS line)
+#   FORCE_WIFI_OFF=1      turn Wi-Fi off even if no wired connection is up
+
+set -euo pipefail
+
+NODE_MAJOR="${NODE_MAJOR:-24}"
+FORCE_WIFI_OFF="${FORCE_WIFI_OFF:-0}"
+
+log()  { printf '\n==> %s\n' "$*"; }
+note() { printf '    %s\n' "$*"; }
+warn() { printf '    WARNING: %s\n' "$*" >&2; }
+
+if [[ $EUID -eq 0 ]]; then
+    echo "Run this as your normal user, not root. It uses sudo where needed." >&2
+    exit 1
+fi
+
+# Ask for the sudo password once up front.
+sudo -v
+
+# install_file DEST MODE USE_SUDO  (content on stdin)
+# Writes DEST only if its content differs. An existing, different file is
+# backed up to DEST.bak.<timestamp> first. Returns 0 if changed, 1 if not.
+install_file() {
+    local dest=$1 mode=$2 use_sudo=$3 tmp
+    local -a run=()
+    [[ $use_sudo == sudo ]] && run=(sudo)
+    tmp=$(mktemp)
+    cat > "$tmp"
+    if "${run[@]}" test -f "$dest" && "${run[@]}" cmp -s "$tmp" "$dest"; then
+        rm -f "$tmp"
+        note "unchanged: $dest"
+        return 1
+    fi
+    if "${run[@]}" test -f "$dest"; then
+        local backup
+        backup="$dest.bak.$(date +%Y%m%d%H%M%S)"
+        "${run[@]}" cp -a "$dest" "$backup"
+        note "backed up existing file to $backup"
+    fi
+    "${run[@]}" mkdir -p "$(dirname "$dest")"
+    "${run[@]}" install -m "$mode" "$tmp" "$dest"
+    rm -f "$tmp"
+    note "wrote: $dest"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# 1. Third-party apt repositories
+#    - NodeSource (Node.js LTS), Microsoft (VS Code), git-core PPA (current git).
+#    Each is added only if its sources file is missing.
+# ---------------------------------------------------------------------------
+log "Apt repositories"
+
+sudo apt-get update -qq
+sudo apt-get install -y -qq ca-certificates curl gpg
+
+# NodeSource. Pinned to NODE_MAJOR rather than "lts" so reruns are predictable;
+# bump NODE_MAJOR when the next LTS line lands.
+if [[ ! -f /usr/share/keyrings/nodesource.gpg ]]; then
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | sudo gpg --dearmor -o /usr/share/keyrings/nodesource.gpg
+fi
+install_file /etc/apt/sources.list.d/nodesource.sources 0644 sudo <<EOF || true
+Types: deb
+URIs: https://deb.nodesource.com/node_${NODE_MAJOR}.x
+Suites: nodistro
+Components: main
+Architectures: amd64
+Signed-By: /usr/share/keyrings/nodesource.gpg
+EOF
+# Prefer NodeSource's nodejs over Ubuntu's older one.
+install_file /etc/apt/preferences.d/nodejs 0644 sudo <<'EOF' || true
+Package: nodejs
+Pin: origin deb.nodesource.com
+Pin-Priority: 600
+EOF
+
+# Microsoft VS Code. Same file name and format the VS Code package itself
+# maintains, so the package won't add a duplicate entry.
+if [[ ! -f /usr/share/keyrings/microsoft.gpg ]]; then
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+        | sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
+fi
+if [[ ! -f /etc/apt/sources.list.d/vscode.sources && ! -f /etc/apt/sources.list.d/vscode.list ]]; then
+    install_file /etc/apt/sources.list.d/vscode.sources 0644 sudo <<'EOF' || true
+Types: deb
+URIs: https://packages.microsoft.com/repos/code
+Suites: stable
+Components: main
+Architectures: amd64
+Signed-By: /usr/share/keyrings/microsoft.gpg
+EOF
+else
+    note "unchanged: VS Code repo already configured"
+fi
+
+# git-core PPA for an up-to-date git.
+if ! compgen -G '/etc/apt/sources.list.d/git-core-ppa*' >/dev/null; then
+    sudo add-apt-repository -y ppa:git-core/ppa
+else
+    note "unchanged: git-core PPA already configured"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Apt packages
+#    The packages installed on top of a stock Mint install. apt-get install is
+#    a no-op for anything already present.
+# ---------------------------------------------------------------------------
+log "Apt packages"
+
+PACKAGES=(
+    git              # from git-core PPA
+    gh               # GitHub CLI
+    tmux
+    curl
+    build-essential
+    python3-pip
+    python3-venv
+    openssh-server
+    nodejs           # from NodeSource (includes npm)
+    code             # VS Code, from Microsoft repo
+    arduino
+    timeshift        # ships with Mint; listed so it's guaranteed
+)
+sudo apt-get update -qq
+sudo apt-get install -y "${PACKAGES[@]}"
+note "node $(node --version), npm $(npm --version)"
+
+# ---------------------------------------------------------------------------
+# 3. Claude Code (native installer)
+#    Installs to ~/.local/bin/claude and keeps itself updated, so skip if present.
+# ---------------------------------------------------------------------------
+log "Claude Code"
+
+if [[ -x "$HOME/.local/bin/claude" ]] || command -v claude >/dev/null 2>&1; then
+    note "already installed: $("$HOME/.local/bin/claude" --version 2>/dev/null || claude --version)"
+else
+    curl -fsSL https://claude.ai/install.sh | bash
+fi
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) note "~/.local/bin is not on PATH in this shell; open a new terminal before running claude." ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 4. Sleep and lid
+#    This box is always-on: never suspend/hibernate, and closing the lid does
+#    nothing (so it can run lid-shut).
+# ---------------------------------------------------------------------------
+log "Sleep and lid settings"
+
+# Mask all sleep targets so nothing (logind, desktop, idle timer) can suspend.
+for target in sleep.target suspend.target hibernate.target hybrid-sleep.target; do
+    if [[ $(systemctl is-enabled "$target" 2>/dev/null || true) == masked ]]; then
+        note "already masked: $target"
+    else
+        sudo systemctl mask "$target"
+    fi
+done
+
+# logind: ignore the lid switch in every power state. Takes effect after reboot
+# (restarting logind would kill the desktop session).
+if install_file /etc/systemd/logind.conf.d/lid.conf 0644 sudo <<'EOF'
+[Login]
+HandleLidSwitch=ignore
+HandleLidSwitchExternalPower=ignore
+HandleLidSwitchDocked=ignore
+EOF
+then
+    note "lid setting takes effect after the next reboot"
+fi
+
+# Cinnamon power settings, so the desktop doesn't try to suspend or blank the
+# screen on its own. Needs the desktop session's D-Bus; skipped over plain SSH.
+P=org.cinnamon.settings-daemon.plugins.power
+if [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] && command -v gsettings >/dev/null 2>&1 \
+    && gsettings list-keys $P >/dev/null 2>&1; then
+    gsettings set $P sleep-inactive-ac-timeout 0
+    gsettings set $P sleep-inactive-battery-timeout 0
+    gsettings set $P sleep-display-ac 0
+    gsettings set $P lid-close-ac-action 'nothing'
+    gsettings set $P lid-close-battery-action 'nothing'
+    note "Cinnamon power settings applied"
+else
+    warn "no desktop session found; Cinnamon power settings skipped. Rerun from a terminal in the desktop to apply them."
+fi
+
+# ---------------------------------------------------------------------------
+# 5. SSH: key-only authentication
+#    Drop-in under sshd_config.d so the stock sshd_config stays untouched.
+# ---------------------------------------------------------------------------
+log "SSH server (keys only)"
+
+sudo systemctl enable --now ssh
+
+if [[ ! -s "$HOME/.ssh/authorized_keys" ]]; then
+    warn "~/.ssh/authorized_keys is empty: after this, you can't SSH in until you add a key (see README)."
+fi
+
+if install_file /etc/ssh/sshd_config.d/10-keys-only.conf 0644 sudo <<'EOF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOF
+then
+    # Validate before reloading so a bad config can't take sshd down.
+    sudo sshd -t
+    sudo systemctl reload ssh
+    note "sshd reloaded"
+fi
+
+# ---------------------------------------------------------------------------
+# 6. ~/.tmux.conf
+# ---------------------------------------------------------------------------
+log "tmux config"
+
+install_file "$HOME/.tmux.conf" 0644 nosudo <<'EOF' || true
+set -g mouse on
+set -g history-limit 50000
+EOF
+
+# ---------------------------------------------------------------------------
+# 7. VS Code Remote machine settings
+#    Applies when this box is opened over Remote-SSH. Git auth is left to the
+#    gh credential helper (set up by `gh auth setup-git`) instead of VS Code.
+# ---------------------------------------------------------------------------
+log "VS Code Remote machine settings"
+
+install_file "$HOME/.vscode-server/data/Machine/settings.json" 0644 nosudo <<'EOF' || true
+{
+    "git.terminalAuthentication": false,
+    "github.gitAuthentication": false
+}
+EOF
+
+# ---------------------------------------------------------------------------
+# 8. Wi-Fi off
+#    The box runs on Ethernet. Done last, and skipped unless a wired connection
+#    is up, so a bootstrap over Wi-Fi doesn't cut itself off.
+#    `nmcli radio wifi off` persists across reboots.
+# ---------------------------------------------------------------------------
+log "Wi-Fi"
+
+if ! command -v nmcli >/dev/null 2>&1; then
+    warn "nmcli not found; Wi-Fi left as is."
+elif [[ $(nmcli radio wifi) == disabled ]]; then
+    note "already off"
+elif nmcli -t -f TYPE,STATE device | grep -qx 'ethernet:connected' || [[ $FORCE_WIFI_OFF == 1 ]]; then
+    nmcli radio wifi off
+    note "turned off"
+else
+    warn "no wired connection is up, so Wi-Fi was left on to avoid losing the network."
+    warn "Plug in Ethernet and rerun, or rerun with FORCE_WIFI_OFF=1."
+fi
+
+log "Done. Remaining manual steps are in README.md."
