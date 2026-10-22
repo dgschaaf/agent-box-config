@@ -21,6 +21,8 @@ What it sets up:
 - SSH: the server is enabled and accepts keys only (`/etc/ssh/sshd_config.d/10-keys-only.conf`)
 - `~/.tmux.conf`: mouse on and 50k lines of scrollback
 - VS Code Remote machine settings: VS Code's own git auth is turned off, so git uses the gh credential helper
+- arduino-cli in `~/.local/bin` (version pinned with `ARDUINO_CLI_VERSION=`, default 1.5.1) with the `arduino:avr` and `arduino:mbed_nano` board cores, and your user added to the `dialout` group for serial port access (log out and back in afterwards)
+- VS Code extensions listed in `vscode-extensions.txt`. Anything missing gets installed; nothing gets removed. To refresh the list from the current box, run `code --list-extensions > vscode-extensions.txt`
 - Wi-Fi off, but only if you ask for it. The box is on Wi-Fi for now, so the script leaves Wi-Fi alone by default. Run it with `WIFI_OFF=1` when the box moves to Ethernet. Even then it skips this step unless a wired connection is up. Adding `FORCE_WIFI_OFF=1` turns Wi-Fi off anyway.
 
 The lid setting takes effect after a reboot. The Cinnamon power settings are skipped over plain SSH, so rerun the script from the desktop to apply them.

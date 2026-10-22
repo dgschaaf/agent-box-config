@@ -1,0 +1,23 @@
+# VS Code extensions bootstrap.sh installs (one ID per line).
+# Refresh from the current box with:  code --list-extensions > vscode-extensions.txt
+alefragnani.project-manager
+alexcvzz.vscode-sqlite
+anthropic.claude-code
+codezombiech.gitignore
+donjayamanne.git-extension-pack
+donjayamanne.githistory
+eamodio.gitlens
+github.vscode-pull-request-github
+hediet.vscode-drawio
+jebbs.plantuml
+ms-python.debugpy
+ms-python.python
+ms-python.vscode-pylance
+ms-python.vscode-python-envs
+ms-vscode.cmake-tools
+ms-vscode.cpp-devtools
+ms-vscode.cpptools
+ms-vscode.cpptools-extension-pack
+ms-vscode.cpptools-themes
+platformio.platformio-ide
+ziyasal.vscode-open-in-github

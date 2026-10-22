@@ -8,12 +8,16 @@
 #
 # Environment overrides:
 #   NODE_MAJOR=24         Node.js major version to pin from NodeSource (current LTS line)
-#   WIFI_OFF=1            turn Wi-Fi off (only if a wired connection is up)
+#   ARDUINO_CLI_VERSION=1.5.1  arduino-cli release to install into ~/.local/bin
+#   WIFI_OFF=1           turn Wi-Fi off (only if a wired connection is up)
 #   FORCE_WIFI_OFF=1      with WIFI_OFF=1, turn Wi-Fi off even with no wired connection
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 NODE_MAJOR="${NODE_MAJOR:-24}"
+ARDUINO_CLI_VERSION="${ARDUINO_CLI_VERSION:-1.5.1}"
 WIFI_OFF="${WIFI_OFF:-0}"
 FORCE_WIFI_OFF="${FORCE_WIFI_OFF:-0}"
 
@@ -265,5 +269,66 @@ else
     warn "no wired connection is up, so Wi-Fi was left on to avoid losing the network."
     warn "Plug in Ethernet and rerun, or rerun with WIFI_OFF=1 FORCE_WIFI_OFF=1."
 fi
+
+# ---------------------------------------------------------------------------
+# 9. arduino-cli
+#    Official installer into ~/.local/bin, which is on PATH for every shell
+#    (including non-interactive ones like Claude Code's), unlike Homebrew.
+#    Then the board cores, and dialout group membership for the boards'
+#    serial ports.
+# ---------------------------------------------------------------------------
+log "arduino-cli"
+
+if command -v arduino-cli >/dev/null 2>&1 || [[ -x "$HOME/.local/bin/arduino-cli" ]]; then
+    note "already installed: $("$HOME/.local/bin/arduino-cli" version 2>/dev/null || arduino-cli version)"
+else
+    mkdir -p "$HOME/.local/bin"
+    curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+        | BINDIR="$HOME/.local/bin" sh -s "$ARDUINO_CLI_VERSION"
+fi
+ARDUINO_CLI=$(command -v arduino-cli || echo "$HOME/.local/bin/arduino-cli")
+
+# Board cores. core install is a no-op for a core that's already installed.
+ARDUINO_CORES=(
+    arduino:avr          # Uno, Nano, Mega
+    arduino:mbed_nano    # Nano 33 BLE, Nano RP2040 Connect
+)
+"$ARDUINO_CLI" core update-index
+for core in "${ARDUINO_CORES[@]}"; do
+    if "$ARDUINO_CLI" core list | awk 'NR > 1 { print $1 }' | grep -qxF "$core"; then
+        note "already installed: core $core"
+    else
+        "$ARDUINO_CLI" core install "$core"
+    fi
+done
+
+if id -nG "$USER" | grep -qw dialout; then
+    note "already in dialout group"
+else
+    sudo usermod -aG dialout "$USER"
+    note "added $USER to dialout; log out and back in for serial port access"
+fi
+
+# ---------------------------------------------------------------------------
+# 10. VS Code extensions
+#     Installs anything in vscode-extensions.txt that isn't installed yet.
+#     Extensions are never removed, and versions aren't pinned (VS Code
+#     auto-updates them).
+# ---------------------------------------------------------------------------
+log "VS Code extensions"
+
+installed_exts=$(code --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]')
+while read -r ext; do
+    ext=${ext%%#*}
+    ext=${ext//[[:space:]]/}
+    [[ -z $ext ]] && continue
+    if grep -qxF "${ext,,}" <<<"$installed_exts"; then
+        note "already installed: $ext"
+    elif ! code --install-extension "$ext" >/dev/null; then
+        warn "failed to install VS Code extension: $ext"
+    else
+        note "installed: $ext"
+    fi
+done < "$SCRIPT_DIR/vscode-extensions.txt"
 
 log "Done. Remaining manual steps are in README.md."
