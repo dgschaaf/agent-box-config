@@ -245,7 +245,7 @@ def first_prompt(cfg, task):
 CONTINUE_PROMPT = (
     "Continue working on {repo}#{issue}. You may have been paused by a usage limit or a restart, "
     "so first re-orient: `git status`, `git log --oneline -10`, and the issue's latest comments "
-    "(`gh issue view {issue} --comments`). Then carry on. The round ends when you either open the PR "
+    "(`gh issue view {issue} --json body,comments`). Then carry on. The round ends when you either open the PR "
     "and label the issue {L_REVIEW}, or ask your question and label it {L_BLOCKED}."
 )
 
