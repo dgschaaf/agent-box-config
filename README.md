@@ -23,6 +23,9 @@ What it sets up:
 - VS Code Remote machine settings: VS Code's own git auth is turned off, so git uses the gh credential helper
 - arduino-cli in `~/.local/bin` (version pinned with `ARDUINO_CLI_VERSION=`, default 1.5.1) with the `arduino:avr` and `arduino:mbed_nano` board cores, and your user added to the `dialout` group for serial port access (log out and back in afterwards)
 - VS Code extensions listed in `vscode-extensions.txt`. Anything missing gets installed; nothing gets removed. To refresh the list from the current box, run `code --list-extensions > vscode-extensions.txt`
+- PlatformIO Core (`pio`), linked into `~/.local/bin` so headless Claude sessions can run `pio test`
+- Claude Code box config: `~/.claude/CLAUDE.md` (the box's operating rules, from `claude/CLAUDE.md`) and the `guard-main` hook (`~/.claude/hooks/guard-main.py`, registered in `~/.claude/settings.json`). The hook blocks pushes to `main` and commits made on `main` in every repo. Tests: `python3 tests/test_guard_main.py`
+- agent-runner: `~/.local/bin/agent-runner`, its config (`~/.config/agent-runner/config.json`, only created if missing) and a systemd user service, plus linger so it runs with nobody logged in. The service is installed but not started; see [Running the agent](#running-the-agent)
 - Wi-Fi off, but only if you ask for it. The box is on Wi-Fi for now, so the script leaves Wi-Fi alone by default. Run it with `WIFI_OFF=1` when the box moves to Ethernet. Even then it skips this step unless a wired connection is up. Adding `FORCE_WIFI_OFF=1` turns Wi-Fi off anyway.
 
 The lid setting takes effect after a reboot. The Cinnamon power settings are skipped over plain SSH, so rerun the script from the desktop to apply them.
@@ -91,3 +94,32 @@ Take a first snapshot once all the steps above are done:
 ```bash
 sudo timeshift --create --comments "post-bootstrap"
 ```
+
+## Running the agent
+
+The box works GitHub issues on its own and hands each one back as a PR or as a question. Its working rules are in [claude/CLAUDE.md](claude/CLAUDE.md); the runner is [runner/agent-runner.py](runner/agent-runner.py).
+
+**The queue is labels.** Each repo in the runner config needs these four:
+
+| Label | Meaning | Who sets it |
+| --- | --- | --- |
+| `agent:ready` | Approved for the agent | you (only logins in `trusted_labelers` count) |
+| `agent:working` | Claimed; the branch is named in an issue comment | runner |
+| `agent:blocked` | Needs your answer; the question is the latest agent comment | agent |
+| `agent:review` | PR open for your review | agent |
+
+To unblock an issue, answer it in a comment and relabel it `agent:ready`. The runner resumes the same Claude session, so the agent keeps its context.
+
+**How it works:** the runner takes one issue at a time (an unfinished `agent:working` first, then the oldest `agent:ready`). Each issue gets a git worktree under `~/agent-work/<repo>/issue-<n>` and its own Claude session ID. It runs headless Claude in `bypassPermissions` mode, round after round, until the issue is labeled `agent:review` or `agent:blocked`. When Claude reports a usage limit, the runner sleeps until the reset time and resumes the same session. If an issue goes 12 rounds without finishing, or fails 6 rounds in a row, the runner gives up on it: it comments and labels it `agent:blocked`. State lives in `~/.local/state/agent-runner/state.json`, so a crash or reboot picks up where it stopped. It skips any issue whose `agent:ready` label was applied by someone outside `trusted_labelers`, because in this mode the issue text becomes the prompt. The guardrails are the `guard-main` hook and GitHub's `protect-main` ruleset.
+
+```bash
+systemctl --user enable --now agent-runner   # start it, and start it at boot
+tmux -L runner attach                        # watch it live (detach: Ctrl-b d)
+agent-runner status                          # current task, pause state, queue per label
+agent-runner pause                           # finish the current round, then idle
+agent-runner unpause
+agent-runner dry-run                         # which issue it would pick next
+journalctl --user -u agent-runner            # service start/stop history
+```
+
+Full transcripts of each round are in `~/.local/state/agent-runner/logs/`, one JSONL file per issue. Before you work in a repo interactively over SSH, run `agent-runner pause`, so you and the runner don't share the usage limit or the same branch.
