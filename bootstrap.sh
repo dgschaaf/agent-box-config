@@ -333,4 +333,75 @@ while read -r ext; do
     fi
 done < "$SCRIPT_DIR/vscode-extensions.txt"
 
+# ---------------------------------------------------------------------------
+# 11. PlatformIO Core (pio CLI)
+#     Official installer into ~/.platformio/penv. Its bin dir isn't on PATH in
+#     non-interactive shells (headless Claude Code), so pio is linked into
+#     ~/.local/bin, as arduino-cli is.
+# ---------------------------------------------------------------------------
+log "PlatformIO Core"
+
+if [[ -x "$HOME/.platformio/penv/bin/pio" ]]; then
+    note "already installed: $("$HOME/.platformio/penv/bin/pio" --version)"
+else
+    tmp=$(mktemp -d)
+    curl -fsSL -o "$tmp/get-platformio.py" \
+        https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
+    python3 "$tmp/get-platformio.py"
+    rm -rf "$tmp"
+fi
+mkdir -p "$HOME/.local/bin"
+for bin in pio platformio; do
+    if [[ $(readlink "$HOME/.local/bin/$bin" 2>/dev/null) == "$HOME/.platformio/penv/bin/$bin" ]]; then
+        note "already linked: ~/.local/bin/$bin"
+    else
+        ln -sf "$HOME/.platformio/penv/bin/$bin" "$HOME/.local/bin/$bin"
+        note "linked: ~/.local/bin/$bin"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# 12. Claude Code box config
+#     ~/.claude/CLAUDE.md: the box's operating rules (autonomous agent, PR-based).
+#     ~/.claude/hooks/guard-main.py: blocks pushes to main and commits on main,
+#     registered in ~/.claude/settings.json so it covers every repo.
+# ---------------------------------------------------------------------------
+log "Claude Code box config"
+
+install_file "$HOME/.claude/CLAUDE.md" 0644 nosudo < "$SCRIPT_DIR/claude/CLAUDE.md" || true
+install_file "$HOME/.claude/hooks/guard-main.py" 0755 nosudo < "$SCRIPT_DIR/claude/hooks/guard-main.py" || true
+note "settings.json hook: $(python3 "$SCRIPT_DIR/claude/merge-settings.py")"
+
+# ---------------------------------------------------------------------------
+# 13. agent-runner
+#     Works agent:ready GitHub issues with headless Claude in a tmux session,
+#     as a systemd user service. Linger keeps it running with nobody logged in.
+#     The config is only created if missing, so local edits survive reruns.
+# ---------------------------------------------------------------------------
+log "agent-runner"
+
+if [[ $(readlink "$HOME/.local/bin/agent-runner" 2>/dev/null) == "$SCRIPT_DIR/runner/agent-runner.py" ]]; then
+    note "already linked: ~/.local/bin/agent-runner"
+else
+    ln -sf "$SCRIPT_DIR/runner/agent-runner.py" "$HOME/.local/bin/agent-runner"
+    note "linked: ~/.local/bin/agent-runner"
+fi
+if [[ -f "$HOME/.config/agent-runner/config.json" ]]; then
+    note "unchanged: ~/.config/agent-runner/config.json (exists; not overwritten)"
+else
+    install_file "$HOME/.config/agent-runner/config.json" 0644 nosudo \
+        < "$SCRIPT_DIR/runner/config.example.json" || true
+fi
+if install_file "$HOME/.config/systemd/user/agent-runner.service" 0644 nosudo \
+    < "$SCRIPT_DIR/runner/agent-runner.service"; then
+    systemctl --user daemon-reload
+fi
+if [[ $(loginctl show-user "$USER" -p Linger --value 2>/dev/null) == yes ]]; then
+    note "already enabled: linger for $USER"
+else
+    sudo loginctl enable-linger "$USER"
+fi
+note "the service is installed but not enabled; start it once Claude and gh are logged in:"
+note "  systemctl --user enable --now agent-runner"
+
 log "Done. Remaining manual steps are in README.md."
