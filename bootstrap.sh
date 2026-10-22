@@ -160,8 +160,8 @@ esac
 
 # ---------------------------------------------------------------------------
 # 4. Sleep and lid
-#    This box is always-on: never suspend/hibernate, and closing the lid does
-#    nothing (so it can run lid-shut).
+#    This box is always-on: never suspend/hibernate. Closing the lid only
+#    blanks the screen, so it can run lid-shut without the panel staying lit.
 # ---------------------------------------------------------------------------
 log "Sleep and lid settings"
 
@@ -174,8 +174,9 @@ for target in sleep.target suspend.target hibernate.target hybrid-sleep.target; 
     fi
 done
 
-# logind: ignore the lid switch in every power state. Takes effect after reboot
-# (restarting logind would kill the desktop session).
+# logind: ignore the lid switch in every power state, so it never tries to
+# suspend; blanking on lid close is Cinnamon's job (below). Takes effect after
+# reboot (restarting logind would kill the desktop session).
 if install_file /etc/systemd/logind.conf.d/lid.conf 0644 sudo <<'EOF'
 [Login]
 HandleLidSwitch=ignore
@@ -186,16 +187,17 @@ then
     note "lid setting takes effect after the next reboot"
 fi
 
-# Cinnamon power settings, so the desktop doesn't try to suspend or blank the
-# screen on its own. Needs the desktop session's D-Bus; skipped over plain SSH.
+# Cinnamon power settings: never suspend, never blank on idle while the lid is
+# open, and blank (not suspend) when the lid closes. Needs the desktop
+# session's D-Bus; skipped over plain SSH.
 P=org.cinnamon.settings-daemon.plugins.power
 if [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] && command -v gsettings >/dev/null 2>&1 \
     && gsettings list-keys $P >/dev/null 2>&1; then
     gsettings set $P sleep-inactive-ac-timeout 0
     gsettings set $P sleep-inactive-battery-timeout 0
     gsettings set $P sleep-display-ac 0
-    gsettings set $P lid-close-ac-action 'nothing'
-    gsettings set $P lid-close-battery-action 'nothing'
+    gsettings set $P lid-close-ac-action 'blank'
+    gsettings set $P lid-close-battery-action 'blank'
     note "Cinnamon power settings applied"
 else
     warn "no desktop session found; Cinnamon power settings skipped. Rerun from a terminal in the desktop to apply them."
