@@ -1,0 +1,21 @@
+# systemd user unit: keeps agent-runner running in a detached tmux session
+# called "runner", across logouts and reboots (needs `loginctl enable-linger`).
+# It uses its own tmux server (-L runner) so systemd can track it; the
+# interactive tmux sessions on the box are unaffected.
+# Watch it: tmux -L runner attach   (detach: Ctrl-b d)
+[Unit]
+Description=agent-runner (headless Claude Code issue worker) in tmux
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h
+ExecStart=/usr/bin/tmux -L runner new-session -d -s runner %h/.local/bin/agent-runner run
+ExecStop=/usr/bin/tmux -L runner kill-session -t runner
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target

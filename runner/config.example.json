@@ -1,0 +1,18 @@
+{
+  "repos": [
+    {
+      "path": "~/projects/DerbyTimer",
+      "github": "dgschaaf/DerbyTimer",
+      "link_into_worktree": ["CLAUDE.md", ".claude"]
+    }
+  ],
+  "trusted_labelers": ["dgschaaf"],
+  "worktree_root": "~/agent-work",
+  "max_rounds_per_issue": 12,
+  "max_errors_per_issue": 6,
+  "idle_poll_seconds": 900,
+  "between_rounds_seconds": 60,
+  "limit_fallback_seconds": 1800,
+  "limit_margin_seconds": 120,
+  "model": null
+}

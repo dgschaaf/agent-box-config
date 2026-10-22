@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-push-to-main.py"
+            "command": "f=\"$CLAUDE_PROJECT_DIR\"/claude/hooks/guard-main.py; [ -f \"$f\" ] || exit 0; exec python3 \"$f\""
           }
         ]
       }
