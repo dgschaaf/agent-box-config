@@ -274,7 +274,8 @@ fi
 # 9. arduino-cli
 #    Official installer into ~/.local/bin, which is on PATH for every shell
 #    (including non-interactive ones like Claude Code's), unlike Homebrew.
-#    dialout group membership gives access to the boards' serial ports.
+#    Then the board cores, and dialout group membership for the boards'
+#    serial ports.
 # ---------------------------------------------------------------------------
 log "arduino-cli"
 
@@ -285,6 +286,21 @@ else
     curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
         | BINDIR="$HOME/.local/bin" sh -s "$ARDUINO_CLI_VERSION"
 fi
+ARDUINO_CLI=$(command -v arduino-cli || echo "$HOME/.local/bin/arduino-cli")
+
+# Board cores. core install is a no-op for a core that's already installed.
+ARDUINO_CORES=(
+    arduino:avr          # Uno, Nano, Mega
+    arduino:mbed_nano    # Nano 33 BLE, Nano RP2040 Connect
+)
+"$ARDUINO_CLI" core update-index
+for core in "${ARDUINO_CORES[@]}"; do
+    if "$ARDUINO_CLI" core list | awk 'NR > 1 { print $1 }' | grep -qxF "$core"; then
+        note "already installed: core $core"
+    else
+        "$ARDUINO_CLI" core install "$core"
+    fi
+done
 
 if id -nG "$USER" | grep -qw dialout; then
     note "already in dialout group"
