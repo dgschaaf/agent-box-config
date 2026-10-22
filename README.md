@@ -17,7 +17,7 @@ What it sets up:
 - Apt repos: NodeSource (Node.js 24 LTS; override with `NODE_MAJOR=`), Microsoft (VS Code) and the git-core PPA
 - Apt packages: git, gh, tmux, curl, build-essential, python3-pip, python3-venv, openssh-server, nodejs, code, arduino and timeshift
 - Claude Code through the native installer (`~/.local/bin/claude`)
-- Sleep and lid: all sleep targets masked, logind ignores the lid and Cinnamon never suspends or blanks the screen on AC
+- Sleep and lid: all sleep targets masked and logind ignores the lid, so the box never suspends. Closing the lid blanks the screen, and with the lid open Cinnamon never blanks it on AC
 - SSH: the server is enabled and accepts keys only (`/etc/ssh/sshd_config.d/10-keys-only.conf`)
 - `~/.tmux.conf`: mouse on and 50k lines of scrollback
 - VS Code Remote machine settings: VS Code's own git auth is turned off, so git uses the gh credential helper
